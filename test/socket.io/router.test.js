@@ -3,12 +3,24 @@ require('should');
 var App = require('../..');
 var Client = require('../supports/client');
 var pedding = require('pedding');
+var co = require('co');
+var util = require('util');
 
 describe('lib/socket.io/router.js', function dRouter() {
   var app;
   var server;
   var client;
 
+  function wrapSocketRoute(func) {
+    return function * wrappedRoute(next) {
+      var thisObj = this;
+      var args = [].slice.call(arguments, 1);
+      co.wrap(func).apply(thisObj, args).catch(function catchWrappedErrors(err) {
+        console.error(err.stack);
+      });
+      yield next;
+    };
+  }
   function run() {
     if (!server) return;
     client = Client(server);
@@ -70,6 +82,31 @@ describe('lib/socket.io/router.js', function dRouter() {
       client.emit('event 9');
       client.emit('pizza 1');
       client.emit('event 5');
+    });
+  });
+
+  describe('with a callback', function dWithACallback() {
+    it('should receive a callback for returning to the client', function shouldReceiveCallback(done) {
+      app.io.route('event', wrapSocketRoute(function eventRoute(callback) {
+        console.log(util.inspect(arguments));
+        callback();
+      }));
+      run();
+      client.emit('event', function shouldBeCalledWithNoArguments() {
+        done();
+      });
+    });
+    it('should receive a callback for returning data to a client', function shouldReceiveCallback(done) {
+      app.io.route('event', wrapSocketRoute(function eventRoute(a, callback) {
+        console.log(util.inspect(arguments));
+        callback(a !== 0);
+      }));
+      run();
+      client.emit('event', 1, function shouldBeCalledWithOneArgument(arg) {
+        if (arg) {
+          done();
+        }
+      });
     });
   });
 });
